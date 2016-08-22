@@ -26,9 +26,11 @@ import (
 	"strconv"
 
 	federationclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_3"
+	federationclientset14 "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_4"
 	"k8s.io/kubernetes/federation/cmd/federation-controller-manager/app/options"
 	"k8s.io/kubernetes/federation/pkg/dnsprovider"
 	clustercontroller "k8s.io/kubernetes/federation/pkg/federation-controller/cluster"
+	replicasetcontroller "k8s.io/kubernetes/federation/pkg/federation-controller/replicaset"
 	servicecontroller "k8s.io/kubernetes/federation/pkg/federation-controller/service"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/pkg/client/restclient"
@@ -78,7 +80,7 @@ func Run(s *options.CMServer) error {
 		glog.Errorf("unable to register configz: %s", err)
 	}
 	// Create the config to talk to federation-apiserver.
-	kubeconfigGetter := util.KubeconfigGetterForSecret(FederationAPIServerSecretName)
+	kubeconfigGetter := util.KubeconfigGetterForSecret("")
 	restClientCfg, err := clientcmd.BuildConfigFromKubeconfigGetter(s.Master, kubeconfigGetter)
 	if err != nil {
 		return err
@@ -122,6 +124,11 @@ func StartControllers(s *options.CMServer, restClientCfg *restclient.Config) err
 	if err != nil {
 		glog.Fatalf("Cloud provider could not be initialized: %v", err)
 	}
+
+	replicaSetClientset := federationclientset14.NewForConfigOrDie(restclient.AddUserAgent(restClientCfg, replicasetcontroller.UserAgentName))
+	replicaSetController := replicasetcontroller.NewReplicaSetController(replicaSetClientset)
+	go replicaSetController.Run(s.ConcurrentReplicaSetSyncs, wait.NeverStop)
+
 	scClientset := federationclientset.NewForConfigOrDie(restclient.AddUserAgent(restClientCfg, servicecontroller.UserAgentName))
 	servicecontroller := servicecontroller.New(scClientset, dns, s.FederationName, s.ZoneName)
 	if err := servicecontroller.Run(s.ConcurrentServiceSyncs, wait.NeverStop); err != nil {
