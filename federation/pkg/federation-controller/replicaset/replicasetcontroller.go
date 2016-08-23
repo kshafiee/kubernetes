@@ -44,7 +44,7 @@ import (
 )
 
 const (
-	FedReplicaSetPreferencesAnnotation = "replicaset.kubernetes.io/federation-preferences"
+	FedReplicaSetPreferencesAnnotation = "federation.kubernetes.io/replica-set-preferences"
 	allClustersKey                     = "THE_ALL_CLUSTER_KEY"
 	UserAgentName                      = "Federation-replicaset-Controller"
 )
@@ -127,7 +127,9 @@ func NewReplicaSetController(federationClient fedclientset.Interface) *ReplicaSe
 		)
 	}
 	clusterLifecycle := fedutil.ClusterLifecycleHandlerFuncs{
-		ClusterAvailable: func(cluster *fedv1.Cluster) { /* no rebalancing for now */ },
+		ClusterAvailable: func(cluster *fedv1.Cluster) {
+			frsc.clusterDeliverer.DeliverAfter(allClustersKey, nil, clusterUnavailableDelay)
+		},
 		ClusterUnavailable: func(cluster *fedv1.Cluster, _ []interface{}) {
 			frsc.clusterDeliverer.DeliverAfter(allClustersKey, nil, clusterUnavailableDelay)
 		},
@@ -230,12 +232,18 @@ func (frsc *ReplicaSetController) isSynced() bool {
 		glog.V(2).Infof("Cluster list not synced")
 		return false
 	}
-	clusters, err = frsc.fedPodInformer.GetReadyClusters()
+	clusters2, err := frsc.fedPodInformer.GetReadyClusters()
 	if err != nil {
 		glog.Errorf("Failed to get ready clusters: %v", err)
 		return false
 	}
+
+	// This also checks whether podInformer and replicaSetInformer have the
+	// same cluster lists.
 	if !frsc.fedPodInformer.GetTargetStore().ClustersSynced(clusters) {
+		return false
+	}
+	if !frsc.fedPodInformer.GetTargetStore().ClustersSynced(clusters2) {
 		return false
 	}
 
