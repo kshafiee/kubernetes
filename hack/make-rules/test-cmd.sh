@@ -419,6 +419,10 @@ runTests() {
 
   kubectl get "${kube_flags[@]}" --raw /version
 
+  # make sure the server was properly bootstrapped with clusterroles and bindings
+  kube::test::get_object_assert clusterroles/cluster-admin "{{.metadata.name}}" 'cluster-admin'
+  kube::test::get_object_assert clusterrolebindings/cluster-admin "{{.metadata.name}}" 'cluster-admin'
+
   ###########################
   # POD creation / deletion #
   ###########################
@@ -1074,6 +1078,38 @@ __EOF__
 
   # cleanup
   kubectl delete pods b
+
+  # same thing without prune for a sanity check
+  # Pre-Condition: no POD exists
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+
+  # apply a
+  kubectl apply -l prune-group=true -f hack/testdata/prune/a.yaml "${kube_flags[@]}"
+  # check right pod exists
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  # check wrong pod doesn't exist
+  output_message=$(! kubectl get pods b 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" 'pods "b" not found'
+
+  # apply b
+  kubectl apply -l prune-group=true -f hack/testdata/prune/b.yaml "${kube_flags[@]}"
+  # check both pods exist
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
+  # check wrong pod doesn't exist
+
+  # cleanup
+  kubectl delete pod/a pod/b
+
+  ## kubectl apply --prune requires a --all flag to select everything
+  output_message=$(! kubectl apply --prune -f hack/testdata/prune 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" \
+    'all resources selected for prune without explicitly passing --all'
+  # should apply everything
+  kubectl apply --all --prune -f hack/testdata/prune
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
+  kubectl delete pod/a pod/b
 
   ## kubectl run should create deployments or jobs
   # Pre-Condition: no Job exists
@@ -2134,6 +2170,10 @@ __EOF__
   kubectl-with-retry rollout resume deployment nginx "${kube_flags[@]}"
   # The resumed deployment can now be rolled back
   kubectl rollout undo deployment nginx "${kube_flags[@]}"
+  # Check that the new replica set (nginx-618515232) has all old revisions stored in an annotation
+  kubectl get rs nginx-618515232 -o yaml | grep "deployment.kubernetes.io/revision-history: 1,3"
+  # Check that trying to watch the status of a superseded revision returns an error
+  ! kubectl rollout status deployment/nginx --revision=3
   # Clean up
   kubectl delete deployment nginx "${kube_flags[@]}"
 

@@ -49,7 +49,7 @@ readonly KUBE_BUILD_IMAGE_CROSS_TAG="$(cat ${KUBE_ROOT}/build/build-image/cross/
 #
 # Increment/change this number if you change the build image (anything under
 # build/build-image) or change the set of volumes in the data container.
-readonly KUBE_BUILD_IMAGE_VERSION_BASE="$(cat ${KUBE_ROOT}/build/BUILD_IMAGE_VERSION)"
+readonly KUBE_BUILD_IMAGE_VERSION_BASE="$(cat ${KUBE_ROOT}/build/build-image/VERSION)"
 readonly KUBE_BUILD_IMAGE_VERSION="${KUBE_BUILD_IMAGE_VERSION_BASE}-${KUBE_BUILD_IMAGE_CROSS_TAG}"
 
 # Here we map the output directories across both the local and remote _output
@@ -147,6 +147,7 @@ kube::build::get_docker_wrapped_binaries() {
 function kube::build::verify_prereqs() {
   kube::log::status "Verifying Prerequisites...."
   kube::build::ensure_tar || return 1
+  kube::build::ensure_rsync || return 1
   kube::build::ensure_docker_in_path || return 1
   if kube::build::is_osx; then
       kube::build::docker_available_on_osx || return 1
@@ -233,6 +234,13 @@ function kube::build::is_osx() {
 
 function kube::build::is_gnu_sed() {
   [[ $(sed --version 2>&1) == *GNU* ]]
+}
+
+function kube::build::ensure_rsync() {
+  if [[ -z "$(which rsync)" ]]; then
+    kube::log::error "Can't find 'rsync' in PATH, please fix and retry."
+    return 1
+  fi
 }
 
 function kube::build::update_dockerfile() {
