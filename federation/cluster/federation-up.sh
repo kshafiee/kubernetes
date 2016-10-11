@@ -29,4 +29,12 @@ if [[ ! -f "$tagfile" ]]; then
 fi
 export FEDERATION_IMAGE_TAG="$(cat "${KUBE_ROOT}/federation/manifests/federated-image.tag")"
 
+$template "${manifests_root}/federation-ns.yaml" | $host_kubectl apply -f -
+
+cleanup-federation-api-objects
+
+if [[ "${FEDERATION_DNS_PROVIDER}" == "local-skydns" ]]; then
+    create-federation-dns-server-objects
+fi
+
 create-federation-api-objects

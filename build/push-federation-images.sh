@@ -23,6 +23,7 @@ set -o pipefail
 KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
 
 source "${KUBE_ROOT}/build/util.sh"
+kube::release::semantic_image_tag_version > "${KUBE_ROOT}/federation/manifests/federated-image.tag"
 
 source "${KUBE_ROOT}/federation/cluster/common.sh"
 

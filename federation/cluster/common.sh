@@ -48,6 +48,9 @@ fi
 
 FEDERATION_IMAGE_REPO_BASE=${FEDERATION_IMAGE_REPO_BASE:-'gcr.io/google_containers'}
 FEDERATION_NAMESPACE=${FEDERATION_NAMESPACE:-federation}
+export FEDERATION_NAMESPACE
+export FEDERATION_NAME="${FEDERATION_NAME:-federation}"
+export DNS_ZONE_NAME="${DNS_ZONE_NAME:-federation.example.}"  # See https://tools.ietf.org/html/rfc2606
 
 KUBE_PLATFORM=${KUBE_PLATFORM:-linux}
 KUBE_ARCH=${KUBE_ARCH:-amd64}
@@ -56,6 +59,14 @@ KUBE_BUILD_STAGE=${KUBE_BUILD_STAGE:-release-stage}
 source "${KUBE_ROOT}/cluster/common.sh"
 
 host_kubectl="${KUBE_ROOT}/cluster/kubectl.sh --namespace=${FEDERATION_NAMESPACE}"
+
+template="go run ${KUBE_ROOT}/federation/cluster/template.go"
+
+FEDERATION_KUBECONFIG_PATH="${KUBE_ROOT}/federation/cluster/kubeconfig"
+
+federation_kubectl="${KUBE_ROOT}/cluster/kubectl.sh --context=federation-cluster --namespace=default"
+
+manifests_root="${KUBE_ROOT}/federation/manifests/"
 
 # required:
 # FEDERATION_PUSH_REPO_BASE: repo to which federated container images will be pushed
@@ -92,21 +103,6 @@ function create-federation-api-objects {
     #Only used for providers that require a nodeport service (vagrant for now)
     #We will use loadbalancer services where we can
     export FEDERATION_API_NODEPORT=32111
-    export FEDERATION_NAMESPACE
-    export FEDERATION_NAME="${FEDERATION_NAME:-federation}"
-    export DNS_ZONE_NAME="${DNS_ZONE_NAME:-federation.example.}"  # See https://tools.ietf.org/html/rfc2606
-
-    template="go run ${KUBE_ROOT}/federation/cluster/template.go"
-
-    FEDERATION_KUBECONFIG_PATH="${KUBE_ROOT}/federation/cluster/kubeconfig"
-
-    federation_kubectl="${KUBE_ROOT}/cluster/kubectl.sh --context=federation-cluster --namespace=default"
-
-    manifests_root="${KUBE_ROOT}/federation/manifests/"
-
-    $template "${manifests_root}/federation-ns.yaml" | $host_kubectl apply -f -
-
-    cleanup-federation-api-objects
 
     export FEDERATION_API_HOST=""
     export KUBE_MASTER_IP=""
@@ -117,7 +113,7 @@ function create-federation-api-objects {
 	node_addresses=`$host_kubectl get nodes -o=jsonpath='{.items[*].status.addresses[?(@.type=="ExternalIP")].address}'`
 	FEDERATION_API_HOST=`printf "$node_addresses" | cut -d " " -f1`
 	KUBE_MASTER_IP="${FEDERATION_API_HOST}:${FEDERATION_API_NODEPORT}"
-    elif [[ "$KUBERNETES_PROVIDER" == "gce" || "$KUBERNETES_PROVIDER" == "gke" || "$KUBERNETES_PROVIDER" == "aws" ]];then
+    elif [[ "$KUBERNETES_PROVIDER" == "gce" || "$KUBERNETES_PROVIDER" == "gke" || "$KUBERNETES_PROVIDER" == "aws" || "$KUBERNETES_PROVIDER" == "openstack-heat" ]];then
 	# any capable providers should use a loadbalancer service
 	# we check for ingress.ip and ingress.hostname, so should work for any loadbalancer-providing provider
 	# allows 30x5 = 150 seconds for loadbalancer creation
@@ -239,6 +235,31 @@ function create-federation-api-objects {
 	sleep 4
     done
 )
+}
+
+function create-federation-dns-server-objects {
+    export FEDERATION_DNS_SERVER_DEPLOYMENT_NAME="federation-dns-server"
+
+    manifests_root="${KUBE_ROOT}/federation/manifests/"
+    $template "${manifests_root}/federation-dns-server-service.yaml" | $host_kubectl create -f -
+    for i in {1..30};do
+        echo "attempting to get federation-dns-server loadbalancer hostname ($i / 30)"
+        for field in ip hostname;do
+            FEDERATION_DNS_HOST=`${host_kubectl} get -o=jsonpath svc/${FEDERATION_DNS_SERVER_DEPLOYMENT_NAME} --template '{.status.loadBalancer.ingress[*].'"${field}}"`
+            if [[ ! -z "${FEDERATION_DNS_HOST// }" ]];then
+                break 2
+            fi
+        done
+        if [[ $i -eq 30 ]];then
+            echo "Could not find ingress hostname for federation-dns-server loadbalancer service"
+            exit 1
+        fi
+        sleep 5
+    done
+
+#    $template "${manifests_root}/federation-dns-server-etcd-pvc.yaml" | $host_kubectl create -f -
+
+    $template "${manifests_root}/federation-dns-server-deployment.yaml" | $host_kubectl create -f -
 }
 
 # Creates the required certificates for federation apiserver.
