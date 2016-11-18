@@ -118,6 +118,61 @@ func NewStorage(opts generic.RESTOptions, connection client.KubeletClient, proxy
 	}
 }
 
+
+// NewStorage returns a NodeStorage object that will work against nodes.
+func NewStorageForFederation(opts generic.RESTOptions, connection client.KubeletClient, proxyTransport http.RoundTripper) NodeStorage {
+	prefix := "/" + opts.ResourcePrefix
+
+	newListFunc := func() runtime.Object { return &api.NodeList{} }
+	storageInterface, dFunc := opts.Decorator(
+		opts.StorageConfig,
+		cachesize.GetWatchCacheSizeByResource(cachesize.Nodes),
+		&api.Node{},
+		prefix,
+		node.Strategy,
+		newListFunc,
+		node.NodeNameTriggerFunc)
+
+	storageForFederation := registry.NewProxyStore(storageInterface);
+
+	store := &registry.Store{
+		NewFunc:     func() runtime.Object { return &api.Node{} },
+		NewListFunc: newListFunc,
+		KeyRootFunc: func(ctx api.Context) string {
+			return prefix
+		},
+		KeyFunc: func(ctx api.Context, name string) (string, error) {
+			return registry.NoNamespaceKeyFunc(ctx, prefix, name)
+		},
+		ObjectNameFunc: func(obj runtime.Object) (string, error) {
+			return obj.(*api.Node).Name, nil
+		},
+		PredicateFunc:           node.MatchNode,
+		QualifiedResource:       api.Resource("nodes"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
+		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
+
+		CreateStrategy: node.Strategy,
+		UpdateStrategy: node.Strategy,
+		DeleteStrategy: node.Strategy,
+		ExportStrategy: node.Strategy,
+
+		Storage:     storageForFederation,
+		DestroyFunc: dFunc,
+	}
+
+	statusStore := *store
+	statusStore.UpdateStrategy = node.StatusStrategy
+
+	nodeREST := &REST{store, connection, proxyTransport}
+
+	return NodeStorage{
+		Node:   nodeREST,
+		Status: &StatusREST{store: &statusStore},
+		Proxy:  &noderest.ProxyREST{Store: store, Connection: client.ConnectionInfoGetter(nodeREST), ProxyTransport: proxyTransport},
+	}
+}
+
 // Implement Redirector.
 var _ = rest.Redirector(&REST{})
 

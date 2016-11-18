@@ -38,6 +38,7 @@ import (
 	namespaceetcd "k8s.io/kubernetes/pkg/registry/core/namespace/etcd"
 	secretetcd "k8s.io/kubernetes/pkg/registry/core/secret/etcd"
 	serviceetcd "k8s.io/kubernetes/pkg/registry/core/service/etcd"
+	nodeetcd "k8s.io/kubernetes/pkg/registry/core/node/etcd"
 )
 
 func installCoreAPIs(s *options.ServerRunOptions, g *genericapiserver.GenericAPIServer, restOptionsFactory restOptionsFactory) {
@@ -45,6 +46,7 @@ func installCoreAPIs(s *options.ServerRunOptions, g *genericapiserver.GenericAPI
 	namespaceStore, namespaceStatusStore, namespaceFinalizeStore := namespaceetcd.NewREST(restOptionsFactory.NewFor(api.Resource("namespaces")))
 	secretStore := secretetcd.NewREST(restOptionsFactory.NewFor(api.Resource("secrets")))
 	eventStore := eventetcd.NewREST(restOptionsFactory.NewFor(api.Resource("events")), uint64(s.EventTTL.Seconds()))
+	nodeStore := nodeetcd.NewStorageForFederation(restOptionsFactory.NewFor(api.Resource("nodes")), nil, nil);
 	coreResources := map[string]rest.Storage{
 		"secrets":             secretStore,
 		"services":            serviceStore,
@@ -53,6 +55,9 @@ func installCoreAPIs(s *options.ServerRunOptions, g *genericapiserver.GenericAPI
 		"namespaces/status":   namespaceStatusStore,
 		"namespaces/finalize": namespaceFinalizeStore,
 		"events":              eventStore,
+		"nodes":               nodeStore.Node,
+		"nodes/status":        nodeStore.Status,
+		"nodes/proxy":         nodeStore.Proxy,
 	}
 	coreGroupMeta := registered.GroupOrDie(core.GroupName)
 	apiGroupInfo := genericapiserver.APIGroupInfo{

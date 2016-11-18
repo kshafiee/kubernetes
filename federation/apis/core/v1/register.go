@@ -47,6 +47,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&v1.SecretList{},
 		&v1.Event{},
 		&v1.EventList{},
+		&v1.Node{},
+		&v1.NodeList{},
 	)
 
 	// Add common types
