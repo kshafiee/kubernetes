@@ -184,10 +184,13 @@ function create-federation-api-objects {
 #    done
 
     # Create server certificates.
+<<<<<<< HEAD
 <<<<<<< f11ec7f288e5b030f3c011086dc3d57f3655671f
     ensure-temp-dir
     echo "Creating federation apiserver certs for federation api host: ${FEDERATION_API_HOST} ( is this a dns name?: ${IS_DNS_NAME} )"
 =======
+=======
+>>>>>>> 5e4bea71a9e530640395fe1cf745a363a64be706
     #ensure-temp-dir
     kube::util::ensure-temp-dir
     echo "Creating federation apiserver certs for IP: $FEDERATION_API_HOST"
