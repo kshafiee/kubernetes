@@ -141,9 +141,8 @@ func NewStorage(opts generic.RESTOptions, kubeletClientConfig client.KubeletClie
 	}, nil
 }
 
-
 // NewStorage returns a NodeStorage object that will work against nodes.
-func NewStorageForFederation(opts generic.RESTOptions, connection client.KubeletClient, proxyTransport http.RoundTripper) NodeStorage {
+func NewStorageForFederation(opts generic.RESTOptions, kubeletClientConfig client.KubeletClientConfig, proxyTransport http.RoundTripper) (*NodeStorage, error) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.NodeList{} }
@@ -156,7 +155,7 @@ func NewStorageForFederation(opts generic.RESTOptions, connection client.Kubelet
 		newListFunc,
 		node.NodeNameTriggerFunc)
 
-	storageForFederation := registry.NewProxyStore(storageInterface);
+	storageForFederation := registry.NewProxyStore(storageInterface)
 
 	store := &registry.Store{
 		NewFunc:     func() runtime.Object { return &api.Node{} },
@@ -187,68 +186,36 @@ func NewStorageForFederation(opts generic.RESTOptions, connection client.Kubelet
 	statusStore := *store
 	statusStore.UpdateStrategy = node.StatusStrategy
 
-	nodeREST := &REST{store, connection, proxyTransport}
+	// Set up REST handlers
+	nodeREST := &REST{Store: store, proxyTransport: proxyTransport}
+	statusREST := &StatusREST{store: &statusStore}
+	proxyREST := &noderest.ProxyREST{Store: store, ProxyTransport: proxyTransport}
 
-	return NodeStorage{
+	// Build a NodeGetter that looks up nodes using the REST handler
+	nodeGetter := client.NodeGetterFunc(func(nodeName string) (*api.Node, error) {
+		obj, err := nodeREST.Get(api.NewContext(), nodeName)
+		if err != nil {
+			return nil, err
+		}
+		node, ok := obj.(*api.Node)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", obj)
+		}
+		return node, nil
+	})
+	connectionInfoGetter, err := client.NewNodeConnectionInfoGetter(nodeGetter, kubeletClientConfig)
+	if err != nil {
+		return nil, err
+	}
+	nodeREST.connection = connectionInfoGetter
+	proxyREST.Connection = connectionInfoGetter
+
+	return &NodeStorage{
 		Node:   nodeREST,
-		Status: &StatusREST{store: &statusStore},
-		Proxy:  &noderest.ProxyREST{Store: store, Connection: client.ConnectionInfoGetter(nodeREST), ProxyTransport: proxyTransport},
-	}
-}
-
-
-// NewStorage returns a NodeStorage object that will work against nodes.
-func NewStorageForFederation(opts generic.RESTOptions, connection client.KubeletClient, proxyTransport http.RoundTripper) NodeStorage {
-	prefix := "/" + opts.ResourcePrefix
-
-	newListFunc := func() runtime.Object { return &api.NodeList{} }
-	storageInterface, dFunc := opts.Decorator(
-		opts.StorageConfig,
-		cachesize.GetWatchCacheSizeByResource(cachesize.Nodes),
-		&api.Node{},
-		prefix,
-		node.Strategy,
-		newListFunc,
-		node.NodeNameTriggerFunc)
-
-	storageForFederation := registry.NewProxyStore(storageInterface);
-
-	store := &registry.Store{
-		NewFunc:     func() runtime.Object { return &api.Node{} },
-		NewListFunc: newListFunc,
-		KeyRootFunc: func(ctx api.Context) string {
-			return prefix
-		},
-		KeyFunc: func(ctx api.Context, name string) (string, error) {
-			return registry.NoNamespaceKeyFunc(ctx, prefix, name)
-		},
-		ObjectNameFunc: func(obj runtime.Object) (string, error) {
-			return obj.(*api.Node).Name, nil
-		},
-		PredicateFunc:           node.MatchNode,
-		QualifiedResource:       api.Resource("nodes"),
-		EnableGarbageCollection: opts.EnableGarbageCollection,
-		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
-
-		CreateStrategy: node.Strategy,
-		UpdateStrategy: node.Strategy,
-		DeleteStrategy: node.Strategy,
-		ExportStrategy: node.Strategy,
-
-		Storage:     storageForFederation,
-		DestroyFunc: dFunc,
-	}
-
-	statusStore := *store
-	statusStore.UpdateStrategy = node.StatusStrategy
-
-	nodeREST := &REST{store, connection, proxyTransport}
-
-	return NodeStorage{
-		Node:   nodeREST,
-		Status: &StatusREST{store: &statusStore},
-		Proxy:  &noderest.ProxyREST{Store: store, Connection: client.ConnectionInfoGetter(nodeREST), ProxyTransport: proxyTransport},
-	}
+		Status: statusREST,
+		Proxy:  proxyREST,
+		KubeletConnectionInfo: connectionInfoGetter,
+	}, nil
 }
 
 // Implement Redirector.

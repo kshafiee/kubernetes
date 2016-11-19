@@ -25,12 +25,12 @@ import (
 )
 
 type proxyStore struct {
-	store     storage.Interface
+	store storage.Interface
 }
 
 func NewProxyStore(c storage.Interface) *proxyStore {
 	return &proxyStore{
-		store:     c,
+		store: c,
 	}
 }
 
@@ -54,15 +54,15 @@ func (s *proxyStore) Delete(ctx context.Context, key string, out runtime.Object,
 	return s.store.Delete(ctx, key, out, precondtions)
 }
 
-
 // GuaranteedUpdate implements storage.Interface.GuaranteedUpdate.
-func (s *proxyStore) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool, precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
-	return s.store.GuaranteedUpdate(ctx, key, out, ignoreNotFound, precondtions, tryUpdate)
+func (s *proxyStore) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool,
+	precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc, suggestion ...runtime.Object) error {
+	return s.store.GuaranteedUpdate(ctx, key, out, ignoreNotFound, precondtions, tryUpdate, suggestion...)
 }
 
 // GetToList implements storage.Interface.GetToList.
-func (s *proxyStore) GetToList(ctx context.Context, key string, pred storage.SelectionPredicate, listObj runtime.Object) error {
-	return s.store.GetToList(ctx, key, pred, listObj)
+func (s *proxyStore) GetToList(ctx context.Context, key string, resourceVersion string, pred storage.SelectionPredicate, listObj runtime.Object) error {
+	return s.store.GetToList(ctx, key, resourceVersion, pred, listObj)
 }
 
 // List implements storage.Interface.List.
@@ -80,4 +80,3 @@ func (s *proxyStore) Watch(ctx context.Context, key string, resourceVersion stri
 func (s *proxyStore) WatchList(ctx context.Context, key string, resourceVersion string, pred storage.SelectionPredicate) (watch.Interface, error) {
 	return s.store.WatchList(ctx, key, resourceVersion, pred)
 }
-
