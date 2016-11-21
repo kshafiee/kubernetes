@@ -39,6 +39,20 @@ import (
 	secretcontroller "k8s.io/kubernetes/federation/pkg/federation-controller/secret"
 	servicecontroller "k8s.io/kubernetes/federation/pkg/federation-controller/service"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
+	"k8s.io/kubernetes/pkg/api"
+
+	// leader election references
+	//
+	// clientset is the clisnts to the master API server
+	// for the currently implementation, the federation CM leader election still uses the master API server endpoint lock
+	//
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
+	unversionedcore "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/unversioned"
+	"k8s.io/kubernetes/pkg/client/leaderelection"
+	"k8s.io/kubernetes/pkg/client/leaderelection/resourcelock"
+	"k8s.io/kubernetes/pkg/client/record"
+	// end leader election references
+
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	"k8s.io/kubernetes/pkg/healthz"
@@ -50,6 +64,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"k8s.io/kubernetes/pkg/registry/extensions/daemonset"
+	"k8s.io/kubernetes/pkg/registry/daemonset"
+	"os"
 )
 
 const (
@@ -119,6 +136,19 @@ func Run(s *options.CMServer) error {
 	restClientCfg.QPS = s.APIServerQPS
 	restClientCfg.Burst = s.APIServerBurst
 
+	// Build leader election client to the master API server
+	// the Master API Address is the IP:PORT for the k8s master api server, passed in from the commandline
+	// TODO: validate the parameters
+	federationKubeconfig, err := clientcmd.BuildConfigFromFlags(s.MasterAPIServerAddress,s.MasterAPIServerConfig)
+	if err != nil {
+		glog.Fatalf("Failure in building federationKubeconfig: %v", err)
+	}
+
+	federationKubeconfig.QPS = s.APIServerQPS
+	federationKubeconfig.Burst = s.APIServerBurst
+
+	leaderElectionClient := clientset.NewForConfigOrDie(restclient.AddUserAgent(federationKubeconfig, "federation-controller-leader-election"))
+
 	go func() {
 		mux := http.NewServeMux()
 		healthz.InstallHandler(mux)
@@ -136,12 +166,57 @@ func Run(s *options.CMServer) error {
 		glog.Fatal(server.ListenAndServe())
 	}()
 
-	run := func() {
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartLogging(glog.Infof)
+	eventBroadcaster.StartRecordingToSink(&unversionedcore.EventSinkImpl{Interface: kubeClient.Core().Events("")})
+	recorder := eventBroadcaster.NewRecorder(api.EventSource{Component: "federation-controller-manager"})
+
+	run := func(stop <-chan struct{}) {
 		err := StartControllers(s, restClientCfg)
 		glog.Fatalf("error running controllers: %v", err)
 		panic("unreachable")
 	}
-	run()
+
+	if !s.LeaderElection.LeaderElect {
+		run(nil)
+		panic("unreachable")
+	}
+
+	// Should consider to have unique ID for each CM process to avoid any potential name conflict
+	// TODO: Assign the CM process GUID from commandline to ensure CM IDs are unique
+	id, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+
+	glog.Infof("Leader election HostName ID: %s", id)
+
+	// TODO: enable other lock types
+	rl := resourcelock.EndpointsLock{
+		EndpointsMeta: api.ObjectMeta{
+			Namespace: "default",             // change to federation once the namespace is created
+			Name:      "federation-controller-manager",
+		},
+		Client: leaderElectionClient,
+		LockConfig: resourcelock.ResourceLockConfig{
+			Identity:      id,
+			EventRecorder: recorder,
+		},
+	}
+
+	leaderelection.RunOrDie(leaderelection.LeaderElectionConfig{
+		Lock:          &rl,
+		LeaseDuration: s.LeaderElection.LeaseDuration.Duration,
+		RenewDeadline: s.LeaderElection.RenewDeadline.Duration,
+		RetryPeriod:   s.LeaderElection.RetryPeriod.Duration,
+		Callbacks: leaderelection.LeaderCallbacks{
+			OnStartedLeading: run,
+			OnStoppedLeading: func() {
+				glog.Fatalf("leaderelection lost")
+			},
+		},
+	})
+
 	panic("unreachable")
 }
 
