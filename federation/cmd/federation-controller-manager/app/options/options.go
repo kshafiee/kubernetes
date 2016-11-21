@@ -67,10 +67,6 @@ type ControllerManagerConfiguration struct {
 	LeaderElection componentconfig.LeaderElectionConfiguration `json:"leaderElection"`
 	// contentType is contentType of requests sent to apiserver.
 	ContentType string `json:"contentType"`
-	// api server address for k8s master
-	MasterAPIServerAddress string `json:"masterApiServerAddress"`
-	// master api config file, i.e. the ~/kube/config file for the master api server
-	MasterAPIServerConfig string `json:"masterApiServerConfig"`
 }
 
 // CMServer is the main context object for the controller manager.
@@ -98,8 +94,6 @@ func NewCMServer() *CMServer {
 			APIServerQPS:              20.0,
 			APIServerBurst:            30,
 			LeaderElection:            leaderelection.DefaultLeaderElectionConfiguration(),
-			MasterAPIServerAddress:    "0.0.0.0",
-			MasterAPIServerConfig:     "~/.kube/config",
 		},
 	}
 	return &s
@@ -124,7 +118,5 @@ func (s *CMServer) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&s.APIServerBurst, "federated-api-burst", s.APIServerBurst, "Burst to use while talking with federation apiserver")
 	fs.StringVar(&s.DnsProvider, "dns-provider", s.DnsProvider, "DNS provider. Valid values are: "+fmt.Sprintf("%q", dnsprovider.RegisteredDnsProviders()))
 	fs.StringVar(&s.DnsConfigFile, "dns-provider-config", s.DnsConfigFile, "Path to config file for configuring DNS provider.")
-	fs.StringVar(&s.MasterAPIServerAddress, "master-api-server-address", s.MasterAPIServerAddress, "Master api server address used in CM leader lection")
-	fs.StringVar(&s.MasterAPIServerConfig, "master-api-server-config", s.MasterAPIServerConfig, "Master api server config file, default is ~/.kube/config")
 	leaderelection.BindFlags(&s.LeaderElection, fs)
 }
