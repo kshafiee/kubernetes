@@ -20,6 +20,8 @@ type ConfigMapExpansion interface{}
 
 type EventExpansion interface{}
 
+type NodeExpansion interface{}
+
 type SecretExpansion interface{}
 
 type ServiceExpansion interface{}
