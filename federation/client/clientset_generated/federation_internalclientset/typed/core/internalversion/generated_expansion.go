@@ -22,6 +22,8 @@ type EventExpansion interface{}
 
 type NodeExpansion interface{}
 
+type PodExpansion interface{}
+
 type SecretExpansion interface{}
 
 type ServiceExpansion interface{}

@@ -28,6 +28,7 @@ type CoreInterface interface {
 	EventsGetter
 	NamespacesGetter
 	NodesGetter
+	PodsGetter
 	SecretsGetter
 	ServicesGetter
 }
@@ -51,6 +52,10 @@ func (c *CoreClient) Namespaces() NamespaceInterface {
 
 func (c *CoreClient) Nodes() NodeInterface {
 	return newNodes(c)
+}
+
+func (c *CoreClient) Pods(namespace string) PodInterface {
+	return newPods(c, namespace)
 }
 
 func (c *CoreClient) Secrets(namespace string) SecretInterface {

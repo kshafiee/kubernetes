@@ -76,6 +76,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&api.ConfigMapList{},
 		&api.Node{},
 		&api.NodeList{},
+		&api.Pod{},
+		&api.PodList{},
 	)
 
 	// Register Unversioned types under their own special group

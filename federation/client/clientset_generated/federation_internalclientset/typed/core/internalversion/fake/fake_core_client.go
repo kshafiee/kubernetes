@@ -42,6 +42,10 @@ func (c *FakeCore) Nodes() internalversion.NodeInterface {
 	return &FakeNodes{c}
 }
 
+func (c *FakeCore) Pods(namespace string) internalversion.PodInterface {
+	return &FakePods{c, namespace}
+}
+
 func (c *FakeCore) Secrets(namespace string) internalversion.SecretInterface {
 	return &FakeSecrets{c, namespace}
 }
